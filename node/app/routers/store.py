@@ -1,14 +1,19 @@
 """Node block-store with SHA-256 integrity verification."""
 import os
+import shutil
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
+from common.config import APP_VERSION
 from common.hashing import sha256_bytes, sha256_stream
 
 router = APIRouter(tags=["store"])
 NOT_IMPL = {"detail": "not implemented (skeleton)"}
+
+_BOOT_TIME = time.time()
 
 
 def _guard(name: str) -> None:
@@ -54,6 +59,23 @@ def store_delete(name: str):
     return {"name": name, "deleted": True}
 
 
-@router.get("/internal/health", status_code=501)
+@router.get("/internal/health")
 def internal_health():
-    return NOT_IMPL
+    data_dir = _data_dir()
+    if data_dir.is_dir():
+        files_stored = sum(1 for p in data_dir.iterdir() if p.is_file())
+    else:
+        files_stored = 0
+    try:
+        disk_free = shutil.disk_usage(str(data_dir)).free
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        disk_free = shutil.disk_usage(".").free
+    return {
+        "status": "ok",
+        "node_id": os.getenv("NODE_ID", "node-1"),
+        "version": APP_VERSION,
+        "uptime_secs": time.time() - _BOOT_TIME,
+        "files_stored": files_stored,
+        "disk_free": disk_free,
+        "data_dir": str(data_dir),
+    }

@@ -2,10 +2,11 @@
 import os
 from fastapi import FastAPI
 
-from node.app.routers import store
+from node.app.routers import peers, store
 
 app = FastAPI(title="RAID1 Node (skeleton)")
 app.include_router(store.router)
+app.include_router(peers.router)
 
 
 @app.get("/health")

@@ -10,3 +10,4 @@ COORDINATOR_URL = os.getenv("COORDINATOR_URL", "http://127.0.0.1:8000")
 X_INTERNAL_KEY = os.getenv("X_INTERNAL_KEY", "change-me-internal")
 X_API_KEY = os.getenv("X_API_KEY", "change-me-api")
 METADATA_DB_PATH = os.getenv("METADATA_DB_PATH", "./metadata.db")
+APP_VERSION = "1.1.0"
