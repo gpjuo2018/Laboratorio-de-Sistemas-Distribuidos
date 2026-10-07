@@ -21,7 +21,6 @@ Stub-only monorepo. Every route beyond `/health` returns 501.
 ```powershell
 .\scripts\run_coordinator.ps1
 .\scripts\run_node.ps1 -NodeId node-1 -Port 8001
-copy .env.example .env  # then edit COORDINATOR_URL for Tailscale
 ```
 
 ## Notes

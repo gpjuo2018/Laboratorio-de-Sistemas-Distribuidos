@@ -5,8 +5,8 @@ $Port = 8000
 $Role = "coordinator"
 $LogPath = "logs\coord-8000.log"
 
-Write-Host "==============================================="
-Write-Host " RAID1 $Role : port $Port"
+Write-Host "===============================================" -ForegroundColor Cyan
+Write-Host " RAID1 $Role : port $Port" -ForegroundColor Cyan
 Write-Host " Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 if (Test-Path .\.env) {
   $shown = Get-Content .\.env | Where-Object { $_ -match '^(NODES|COORDINATOR_URL)=' }
@@ -17,12 +17,12 @@ if (Test-Path .\.env) {
 try {
   $tsIp = (tailscale ip -4 2>$null | Select-Object -First 1)
   if ($tsIp) { Write-Host " Tailscale IPv4: $($tsIp.ToString().Trim())" }
-  else { Write-Host " Tailscale IPv4: (not available - tailscale ip -4 returned nothing)" }
+  else { Write-Host " Tailscale IPv4: (not available - tailscale ip -4 returned nothing)" -ForegroundColor Yellow }
 } catch {
-  Write-Host " Tailscale IPv4: (not available - tailscale not installed or not logged in)"
+  Write-Host " Tailscale IPv4: (not available - tailscale not installed or not logged in)" -ForegroundColor Yellow
 }
-Write-Host " Log: $LogPath"
-Write-Host "==============================================="
+Write-Host " Log: $LogPath" -ForegroundColor Green
+Write-Host "===============================================" -ForegroundColor Cyan
 
 if (-not (Test-Path .\.venv\Scripts\Activate.ps1)) {
   Write-Host "PREFLIGHT FAIL: .venv not found. Fix: python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt" -ForegroundColor Red
@@ -40,4 +40,7 @@ if ($busy) {
 
 if (-not (Test-Path logs)) { New-Item -ItemType Directory -Path logs | Out-Null }
 if (Test-Path .\.venv\Scripts\Activate.ps1) { . .\.venv\Scripts\Activate.ps1 }
-uvicorn coordinator.app.main:app --host 0.0.0.0 --port $Port --reload 2>&1 | Tee-Object -FilePath $LogPath -Append
+# uvicorn logs INFO to stderr: relax to Continue so log lines don't raise NativeCommandError.
+$ErrorActionPreference = "Continue"
+# Stringify ErrorRecords so stderr lines print/log as clean text (no CategoryInfo dumps).
+uvicorn coordinator.app.main:app --host 0.0.0.0 --port $Port --reload 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $LogPath -Append
