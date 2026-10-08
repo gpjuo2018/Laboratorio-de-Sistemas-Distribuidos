@@ -1,6 +1,6 @@
 # Almacenamiento RAID1 Distribuido
 
-Monorepo del laboratorio. Todo lo que no sea `/health` devuelve 501 hasta que se implemente.
+Monorepo del laboratorio: coordinador en `:8000`, nodos en `:8001+`, replicación RAID1 RF=2 con verificación SHA-256.
 
 ## EMPIEZA AQUI (leelo, son 2 minutos)
 

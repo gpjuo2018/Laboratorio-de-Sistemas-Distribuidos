@@ -239,3 +239,23 @@ def test_unrecoverable_all_holders_dead(client, monkeypatch):
     assert "d.txt" not in chk.json()["repaired"]
     meta_after = client.models.get_object("d.txt")
     assert meta_after == meta_before
+
+
+def test_check_twice_no_duplicate_replicas(client, monkeypatch):
+    store = {}
+    _ok_fakes(monkeypatch, store)
+    _register_all(client)
+    body = b"nodup-bytes"
+    assert client.put("/files/n.txt", content=body,
+                      headers=API_HEADERS).status_code == 200
+    victim = client.models.get_object("n.txt")["replicas"][0]
+    client.models.set_last_seen(_url_to_node_id(victim), _old_iso())
+    first = client.post("/nodes/check", headers=INTERNAL_HEADERS)
+    assert first.status_code == 200
+    assert "n.txt" in first.json()["repaired"]
+    second = client.post("/nodes/check", headers=INTERNAL_HEADERS)
+    assert second.status_code == 200
+    meta = client.models.get_object("n.txt")
+    assert meta is not None
+    assert len(meta["replicas"]) == 2
+    assert len(set(meta["replicas"])) == 2

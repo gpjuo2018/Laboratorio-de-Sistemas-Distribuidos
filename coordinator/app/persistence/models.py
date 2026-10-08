@@ -11,7 +11,7 @@ def _db_path() -> str:
 
 def init_db() -> None:
     """Create the objects + nodes tables if missing (idempotent)."""
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         con.execute(
             "CREATE TABLE IF NOT EXISTS objects ("
@@ -70,7 +70,7 @@ def upsert_object(name: str, sha256: str, size: int, replicas: list) -> None:
     """Insert or replace a metadata row (overwrite allowed)."""
     init_db()
     updated_at = datetime.now(timezone.utc).isoformat()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         con.execute(
             "INSERT INTO objects (name, sha256, size, replicas_json, updated_at)"
@@ -88,7 +88,7 @@ def upsert_object(name: str, sha256: str, size: int, replicas: list) -> None:
 def get_object(name: str) -> dict | None:
     """Return metadata dict for name, or None if unknown."""
     init_db()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         row = con.execute(
             "SELECT name, sha256, size, replicas_json, updated_at"
@@ -103,7 +103,7 @@ def get_object(name: str) -> dict | None:
 def list_objects() -> list[dict]:
     """Return all metadata rows as dicts."""
     init_db()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         rows = con.execute(
             "SELECT name, sha256, size, replicas_json, updated_at"
@@ -117,7 +117,7 @@ def list_objects() -> list[dict]:
 def delete_object(name: str) -> None:
     """Remove a metadata row (no-op if unknown)."""
     init_db()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         con.execute("DELETE FROM objects WHERE name = ?", (name,))
         con.commit()
@@ -150,7 +150,7 @@ def register_node(node_id: str, base_url: str, disk_free=None,
     """Upsert a node row (insert or replace last_seen/base_url), return row."""
     init_db()
     now = now_iso if now_iso is not None else _now_iso()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         con.execute(
             "INSERT INTO nodes (node_id, base_url, last_seen, disk_free,"
@@ -184,7 +184,7 @@ def heartbeat_node(node_id: str, disk_free=None, files_stored=None,
     """Update last_seen of a KNOWN node; return None if unknown."""
     init_db()
     now = now_iso if now_iso is not None else _now_iso()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         row = con.execute(
             "SELECT node_id, base_url, last_seen, disk_free,"
@@ -223,7 +223,7 @@ def heartbeat_node(node_id: str, disk_free=None, files_stored=None,
 def list_nodes() -> list[dict]:
     """Return all registered node rows as dicts."""
     init_db()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         rows = con.execute(
             "SELECT node_id, base_url, last_seen, disk_free,"
@@ -238,7 +238,7 @@ def list_nodes() -> list[dict]:
 def set_last_seen(node_id: str, iso: str) -> None:
     """Test seam: force last_seen of a node (no-op if unknown)."""
     init_db()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         con.execute(
             "UPDATE nodes SET last_seen = ? WHERE node_id = ?",
@@ -271,7 +271,7 @@ def log_event(type: str, node_id: str | None, detail=None,
         detail_text = None
     else:
         detail_text = str(detail)
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         cur = con.execute(
             "INSERT INTO events (ts, type, node_id, detail)"
@@ -295,7 +295,7 @@ def list_events(limit: int = 50) -> list[dict]:
         lim = max(1, min(int(limit), 200))
     except (TypeError, ValueError):
         lim = 50
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         rows = con.execute(
             "SELECT id, ts, type, node_id, detail FROM events"
@@ -310,7 +310,7 @@ def list_events(limit: int = 50) -> list[dict]:
 def last_event(node_id: str) -> dict | None:
     """Return the newest event row for a node, or None if it has none."""
     init_db()
-    con = sqlite3.connect(_db_path())
+    con = sqlite3.connect(_db_path(), timeout=5.0)
     try:
         row = con.execute(
             "SELECT id, ts, type, node_id, detail FROM events"

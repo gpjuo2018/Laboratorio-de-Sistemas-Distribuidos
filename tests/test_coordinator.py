@@ -238,3 +238,79 @@ def test_metadata_survives_reimport(client, monkeypatch, tmp_path):
     row = models_mod.get_object("p.txt")
     assert row is not None
     assert row["sha256"] == _digest(body)
+
+
+def test_delete_partial_failure_keeps_metadata_502(client, monkeypatch):
+    store = {}
+    _ok_put(monkeypatch, store)
+    body = b"keep-me"
+    assert client.put("/files/k.txt", content=body,
+                      headers=API_HEADERS).status_code == 200
+    meta = client.models.get_object("k.txt")
+    assert meta is not None
+    bad = meta["replicas"][0]
+    import common.http_client as http_mod
+
+    def fake_delete_fail_one(url, headers=None):
+        if url.startswith(bad):
+            return FakeResponse(500, content=b"boom")
+        if url in store:
+            del store[url]
+            return FakeResponse(200, json_data={"deleted": True})
+        return FakeResponse(404, content=b"")
+
+    monkeypatch.setattr(http_mod, "forward_delete", fake_delete_fail_one)
+    r = client.delete("/files/k.txt", headers=API_HEADERS)
+    assert r.status_code == 502
+    assert r.json()["deleted"] is False
+    assert "test-key" not in r.text
+    assert "test-internal" not in r.text
+    assert client.models.get_object("k.txt") is not None
+
+
+def test_put_rollback_cleans_orphan_on_partial_failure(client, monkeypatch):
+    import common.http_client as http_mod
+    from coordinator.app.services.placement import rendezvous_pick
+    from coordinator.app.services.nodes import get_nodes
+    store = {}
+    targets = rendezvous_pick("w.txt", get_nodes())
+    bad = targets[1]
+
+    def fake_put(url, data, headers=None):
+        assert headers["X-Internal-Key"] == "test-internal"
+        if url.startswith(bad):
+            return FakeResponse(500, content=b"boom")
+        store[url] = data
+        return FakeResponse(200, json_data={"sha256": _digest(data)})
+
+    def fake_get(url, headers=None):
+        if url in store:
+            return FakeResponse(200, content=store[url])
+        return FakeResponse(404, content=b"")
+
+    def fake_delete(url, headers=None):
+        if url in store:
+            del store[url]
+            return FakeResponse(200, json_data={"deleted": True})
+        return FakeResponse(404, content=b"")
+
+    monkeypatch.setattr(http_mod, "forward_put", fake_put)
+    monkeypatch.setattr(http_mod, "forward_get", fake_get)
+    monkeypatch.setattr(http_mod, "forward_delete", fake_delete)
+    r = client.put("/files/w.txt", content=b"data-w", headers=API_HEADERS)
+    assert r.status_code == 502
+    assert client.models.get_object("w.txt") is None
+    assert not [u for u in store if u.endswith("/store/w.txt")]
+
+
+def test_traversal_percent_control_rejected_400(client, monkeypatch):
+    _ok_put(monkeypatch, {})
+    import node.app.routers.store as _store_mod  # noqa: F401 (guard shared logic)
+    from coordinator.app.routers.client import _guard
+    from fastapi import HTTPException
+    for bad in ["", "   ", "a%b", "a\x01b", "a\x7fb"]:
+        with pytest.raises(HTTPException) as ei:
+            _guard(bad)
+        assert ei.value.status_code == 400
+    assert client.put("/files/%25evil", content=b"x",
+                      headers=API_HEADERS).status_code == 400

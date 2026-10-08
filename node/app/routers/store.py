@@ -18,7 +18,11 @@ _BOOT_TIME = time.time()
 
 
 def _guard(name: str) -> None:
-    if "/" in name or "\\" in name or ".." in name:
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail="invalid name")
+    if "/" in name or "\\" in name or ".." in name or "%" in name:
+        raise HTTPException(status_code=400, detail="invalid name")
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise HTTPException(status_code=400, detail="invalid name")
 
 

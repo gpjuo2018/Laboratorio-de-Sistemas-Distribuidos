@@ -126,3 +126,14 @@ def test_traversal_rejected(client):
                           headers=INTERNAL_HEADERS).status_code == 400
         assert client.delete(f"/store/{bad}",
                              headers=INTERNAL_HEADERS).status_code == 400
+
+
+def test_guard_rejects_percent_control_empty(client):
+    import node.app.routers.store as store_mod
+    from fastapi import HTTPException
+    for bad in ["", "   ", "a%b", "a\x01b", "a\x7fb"]:
+        with pytest.raises(HTTPException) as ei:
+            store_mod._guard(bad)
+        assert ei.value.status_code == 400
+    assert client.put("/store/%25evil", content=b"x",
+                      headers=_store_headers()).status_code == 400

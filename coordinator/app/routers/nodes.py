@@ -5,6 +5,7 @@ There is NO background loop; repair runs only on POST /nodes/check.
 """
 from datetime import datetime, timezone
 import logging
+import threading
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -28,6 +29,7 @@ from coordinator.app.services.replication import fetch_verified, replicate
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 _log = logging.getLogger(__name__)
+_CHECK_LOCK = threading.Lock()
 
 
 def _require_non_empty(value, field: str) -> str:
@@ -141,6 +143,11 @@ async def network_map():
 
 @router.post("/check", dependencies=[Depends(require_internal_key)])
 def check_and_repair():
+    with _CHECK_LOCK:
+        return _run_check_and_repair()
+
+
+def _run_check_and_repair():
     # Liveness via the single shared helper (no inline datetime arithmetic).
     rows = list_nodes()
     now = datetime.now(timezone.utc)

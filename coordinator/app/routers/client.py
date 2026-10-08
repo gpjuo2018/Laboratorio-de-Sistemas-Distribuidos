@@ -19,7 +19,11 @@ router = APIRouter(prefix="/files", tags=["client"])
 
 
 def _guard(name: str) -> None:
-    if "/" in name or "\\" in name or ".." in name:
+    if not name or not name.strip():
+        raise HTTPException(status_code=400, detail="invalid name")
+    if "/" in name or "\\" in name or ".." in name or "%" in name:
+        raise HTTPException(status_code=400, detail="invalid name")
+    if any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise HTTPException(status_code=400, detail="invalid name")
 
 
@@ -37,6 +41,15 @@ async def upload_file(name: str, request: Request):
         upsert_object(name, digest, len(body), targets)
         return {"name": name, "sha256": digest, "size": len(body),
                 "replicas": targets}
+    for r in res or []:
+        if r.get("ok") and r.get("target"):
+            try:
+                http_client.forward_delete(
+                    f"{r['target']}/store/{name}",
+                    headers={"X-Internal-Key": get_internal_key()},
+                )
+            except Exception:
+                pass
     return JSONResponse(status_code=502,
                         content={"detail": "replication failed", "targets": res})
 
@@ -85,5 +98,10 @@ def delete_file(name: str):
         except Exception as exc:
             entry["error"] = f"{type(exc).__name__}: {exc}"
         results.append(entry)
-    delete_object(name)
-    return {"name": name, "deleted": True, "replicas": results}
+    if all(e.get("ok") for e in results):
+        delete_object(name)
+        return {"name": name, "deleted": True, "replicas": results}
+    return JSONResponse(status_code=502,
+                        content={"detail": "delete incomplete, metadata kept",
+                                 "name": name, "deleted": False,
+                                 "replicas": results})
