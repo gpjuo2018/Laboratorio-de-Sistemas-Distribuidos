@@ -1,10 +1,88 @@
 <!DOCTYPE html>
-<html lang="en">
-<head><meta charset="utf-8"><title>RAID1 File Storage (skeleton)</title></head>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAID1 · Consola de archivos</title>
+<link rel="stylesheet" href="/static/styles.css">
+</head>
 <body>
-<h1>RAID1 File Storage</h1>
-<p>Skeleton UI - no backend logic yet.</p>
-<button id="upload-btn" type="button">Upload (placeholder)</button>
-<button id="download-btn" type="button">Download (placeholder)</button>
+<header class="top">
+  <div>
+    <p class="eyebrow">Laboratorio · RAID1 RF=2</p>
+    <h1>Espejo de archivos</h1>
+    <p class="sub">Cada archivo vive en 2 nodos a la vez, verificado por SHA-256.</p>
+  </div>
+  <div id="conn-pill" class="pill idle" role="status">sin probar</div>
+</header>
+
+<main>
+<section id="config" aria-label="Conexión">
+  <h2>Conexión</h2>
+  <p class="hint">Vacío = este mismo servidor. Solo IP y puerto, sin <code>http://</code>.</p>
+  <div class="row">
+    <label>IP del coordinador
+      <input id="coord-ip" type="text" inputmode="decimal" placeholder="100.94.112.43">
+    </label>
+    <label class="short">Puerto
+      <input id="coord-port" type="number" min="1" max="65535" placeholder="8000">
+    </label>
+  </div>
+  <label>X-API-Key
+    <input id="api-key" type="password" autocomplete="off" placeholder="la de tu .env">
+  </label>
+  <label class="inline"><input id="remember" type="checkbox" checked> recordar clave aquí</label>
+  <div>
+    <button id="test-btn" type="button">Probar conexión</button>
+    <button id="refresh-btn" type="button">Actualizar lista</button>
+    <label class="inline"><input id="auto" type="checkbox"> auto-actualizar (10s)</label>
+  </div>
+  <span id="conn-status" class="muted"></span>
+</section>
+
+<section id="upload" aria-label="Subir">
+  <h2>Subir <span class="step">espeja en 2 nodos</span></h2>
+  <input id="file-input" type="file">
+  <label>Nombre en el cluster
+    <input id="file-name" type="text" placeholder="por defecto el del archivo">
+  </label>
+  <button id="upload-btn" type="button">Subir</button>
+  <div id="upload-info" class="muted"></div>
+  <div id="upload-result"></div>
+</section>
+
+<section id="files" aria-label="Archivos">
+  <h2>Archivos <span class="step">doble réplica verificada</span></h2>
+  <table>
+    <thead><tr><th>Nombre</th><th>Tamaño</th><th>Huella SHA-256</th><th>Espejo</th><th>Acciones</th></tr></thead>
+    <tbody id="files-body">
+      <tr><td colspan="5" class="muted">sin datos — pulsa Actualizar lista</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="nodes" aria-label="Nodos">
+  <h2>Nodos <span class="step">malla en vivo</span></h2>
+  <p class="hint">Usa la <code>X-Internal-Key</code> de tu <code>.env</code> (igual en todas las máquinas). Sin ella verás <code>401/403</code>.</p>
+  <label>X-Internal-Key
+    <input id="internal-key" type="password" autocomplete="off" placeholder="la interna de tu .env">
+  </label>
+  <div>
+    <button id="nodes-btn" type="button">Ver nodos</button>
+  </div>
+  <div id="nodes-summary" class="muted"></div>
+  <table>
+    <thead><tr><th>Nodo</th><th>Dirección</th><th>Estado</th><th>Archivos</th><th>Versión</th></tr></thead>
+    <tbody id="nodes-body">
+      <tr><td colspan="5" class="muted">sin datos — pulsa Ver nodos</td></tr>
+    </tbody>
+  </table>
+  <h3>Malla entre hermanos</h3>
+  <div id="mesh" class="muted">sin datos</div>
+</section>
+
+<div id="log" role="status"></div>
+
+<script src="/static/app.js"></script>
 </body>
 </html>
