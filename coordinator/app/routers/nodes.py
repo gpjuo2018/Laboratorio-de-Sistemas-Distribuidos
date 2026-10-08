@@ -51,6 +51,9 @@ async def register(request: Request):
     files_stored = payload.get("files_stored")
     uptime_secs = payload.get("uptime_secs")
     version = payload.get("version")
+    _from = request.client.host if request.client else "?"
+    print(f"[nodes] register node={node_id} base={base_url} from={_from}",
+          flush=True)
     return register_node(node_id, base_url, disk_free=disk_free,
                          files_stored=files_stored, uptime_secs=uptime_secs,
                          version=version)
@@ -69,6 +72,7 @@ async def heartbeat(request: Request):
     files_stored = payload.get("files_stored")
     uptime_secs = payload.get("uptime_secs")
     version = payload.get("version")
+    _from = request.client.host if request.client else "?"
     prev_seen = ""
     for _row in list_nodes():
         if _row.get("node_id") == node_id:
@@ -78,8 +82,11 @@ async def heartbeat(request: Request):
                          files_stored=files_stored, uptime_secs=uptime_secs,
                          version=version)
     if row is None:
+        print(f"[nodes] heartbeat node={node_id} from={_from} -> 404 "
+              f"(unknown node, register first)", flush=True)
         raise HTTPException(status_code=404,
                             detail="unknown node, register first")
+    print(f"[nodes] heartbeat node={node_id} from={_from} -> 200", flush=True)
     now = datetime.now(timezone.utc)
     if (prev_seen and not is_live(prev_seen, now)
             and is_live(row.get("last_seen", ""), now)):
