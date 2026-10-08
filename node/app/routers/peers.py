@@ -187,7 +187,7 @@ def list_peers(refresh: bool = False):
                       "reachable": reachable, "detail": detail,
                       "status": status, "failures": failures,
                       "last_seen": last_ok})
-    _PEERS_CACHE.update({"timestamp": now, "coord": coord,
+    _PEERS_CACHE.update({"timestamp": time.time(), "coord": coord,
                          "self_id": self_id, "row_ids": row_ids,
                          "peers": [dict(p) for p in peers]})
     return {

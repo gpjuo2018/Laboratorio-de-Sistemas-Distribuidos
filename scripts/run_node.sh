@@ -106,11 +106,21 @@ fi
 TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
 echo "==============================================="
 echo " RAID1 node : $NODE_ID on port $NODE_PORT"
-echo " NODE_ID source: $SRC_ID | Port source: $SRC_PORT | Coord source: $SRC_COORD"
-echo " Coordinator: $COORDINATOR_URL (beat every ${INTERVAL_SECS}s)"
+echo " Started: $(date '+%Y-%m-%d %H:%M:%S')"
+echo " NODE_ID: $NODE_ID ($SRC_ID)"
+echo " Port: $NODE_PORT ($SRC_PORT)"
+echo " Coordinator: $COORDINATOR_URL ($SRC_COORD) (beat every ${INTERVAL_SECS}s)"
 echo " DATA_DIR: $DATA_DIR ($SRC_DATA)"
-echo " Tailscale IPv4: ${TS_IP:-n/a}"
-echo " Log: $LOG_PATH"
+for _k in NODE_ID NODE_PORT COORDINATOR_URL DATA_DIR NODES; do
+  if [ -n "${!_k:-}" ]; then echo " .env: $_k=${!_k}"; fi
+done
+if [ -n "${TS_IP:-}" ]; then
+  echo " Tailscale IPv4: $TS_IP"
+else
+  echo " Tailscale IPv4: (not available - tailscale ip -4 returned nothing)"
+fi
+echo " Log (stdout): $LOG_PATH"
+echo " Log (stderr/uvicorn): $LOG_PATH (mismo archivo)"
 echo "==============================================="
 
 mkdir -p logs "$DATA_DIR"
@@ -120,6 +130,7 @@ mkdir -p logs "$DATA_DIR"
 NODE_PID=$!
 # EXIT cubre salida normal; HUP/INT/TERM cubren cierre de terminal y Ctrl+C.
 trap 'kill $NODE_PID 2>/dev/null; echo "stopped node $NODE_ID (PID $NODE_PID)."' EXIT HUP INT TERM
+echo "Booting node $NODE_ID on port $NODE_PORT (PID $NODE_PID), waiting for /internal/health ..."
 
 if [ -n "${TS_IP:-}" ]; then BASE_URL="http://$TS_IP:$NODE_PORT"; else BASE_URL="http://127.0.0.1:$NODE_PORT"; fi
 
@@ -156,7 +167,7 @@ if [ -z "${READY:-}" ]; then echo "NODE FAIL: never became ready. Tail of $LOG_P
 
 register_once || true
 
-echo "node up, heartbeating: node=$NODE_ID local=$LOCAL_BASE base=$BASE_URL coord=$COORDINATOR_URL every=${INTERVAL_SECS}s (Ctrl+C stops node + loop)"
+echo "node up, starting heartbeat: node=$NODE_ID local=$LOCAL_BASE base=$BASE_URL coord=$COORDINATOR_URL every=${INTERVAL_SECS}s (Ctrl+C stops node + loop)"
 while true; do
   STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
   if ! HEALTH="$(curl -fs --max-time 5 "${AUTH_HDR[@]}" "$LOCAL_BASE/internal/health" 2>/dev/null)"; then
