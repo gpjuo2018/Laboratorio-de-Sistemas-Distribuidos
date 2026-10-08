@@ -39,6 +39,24 @@ if ($busy) {
 }
 
 if (-not (Test-Path logs)) { New-Item -ItemType Directory -Path logs | Out-Null }
+# Load .env into process env for the uvicorn child (existing env wins).
+# Sin esto, os.getenv("X_INTERNAL_KEY"/"X_API_KEY") queda vacio en el
+# coordinador y toda validacion falla con 403 aunque los nodos envien bien.
+$envFile = @{}
+if (Test-Path .\.env) {
+  foreach ($line in Get-Content .\.env) {
+    $t = $line.Trim()
+    if (-not $t -or $t.StartsWith('#')) { continue }
+    $i = $t.IndexOf('=')
+    if ($i -lt 1) { continue }
+    $k = $t.Substring(0, $i).Trim()
+    $v = $t.Substring($i + 1).Trim().Trim('"').Trim("'")
+    if ($k) { $envFile[$k] = $v }
+  }
+}
+foreach ($k in $envFile.Keys) {
+  if (-not (Test-Path "env:$k")) { Set-Item -Path "env:$k" -Value $envFile[$k] }
+}
 if (Test-Path .\.venv\Scripts\Activate.ps1) { . .\.venv\Scripts\Activate.ps1 }
 # uvicorn logs INFO to stderr: relax to Continue so log lines don't raise NativeCommandError.
 $ErrorActionPreference = "Continue"

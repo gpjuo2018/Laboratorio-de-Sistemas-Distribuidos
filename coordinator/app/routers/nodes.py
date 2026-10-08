@@ -4,6 +4,7 @@ Endpoints: register + heartbeat + live/dead listing + manual repair check.
 There is NO background loop; repair runs only on POST /nodes/check.
 """
 from datetime import datetime, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -26,9 +27,7 @@ from coordinator.app.services.replication import fetch_verified, replicate
 
 router = APIRouter(prefix="/nodes", tags=["nodes"])
 
-
-def _internal_key() -> str:
-    return get_internal_key()
+_log = logging.getLogger(__name__)
 
 
 def _require_non_empty(value, field: str) -> str:
@@ -37,56 +36,61 @@ def _require_non_empty(value, field: str) -> str:
     return value.strip()
 
 
-@router.post("/register", dependencies=[Depends(require_internal_key)])
-async def register(request: Request):
+async def _parse_json_body(request: Request) -> dict:
     try:
         payload = await request.json()
     except Exception:
         raise HTTPException(status_code=422, detail="invalid body")
     if not isinstance(payload, dict):
         raise HTTPException(status_code=422, detail="invalid body")
+    return payload
+
+
+def _enriched_fields(payload: dict) -> dict:
+    return {
+        "disk_free": payload.get("disk_free"),
+        "files_stored": payload.get("files_stored"),
+        "uptime_secs": payload.get("uptime_secs"),
+        "version": payload.get("version"),
+    }
+
+
+def _live_dead_rows(rows: list, now: datetime) -> tuple[list, list]:
+    live = [r for r in rows if is_live(r.get("last_seen", ""), now)]
+    dead = [r for r in rows if not is_live(r.get("last_seen", ""), now)]
+    return live, dead
+
+
+@router.post("/register", dependencies=[Depends(require_internal_key)])
+async def register(request: Request):
+    payload = await _parse_json_body(request)
     node_id = _require_non_empty(payload.get("node_id"), "node_id")
     base_url = _require_non_empty(payload.get("base_url"), "base_url")
-    disk_free = payload.get("disk_free")
-    files_stored = payload.get("files_stored")
-    uptime_secs = payload.get("uptime_secs")
-    version = payload.get("version")
+    fields = _enriched_fields(payload)
     _from = request.client.host if request.client else "?"
-    print(f"[nodes] register node={node_id} base={base_url} from={_from}",
-          flush=True)
-    return register_node(node_id, base_url, disk_free=disk_free,
-                         files_stored=files_stored, uptime_secs=uptime_secs,
-                         version=version)
+    _log.info("[nodes] register node=%s base=%s from=%s",
+              node_id, base_url, _from)
+    return register_node(node_id, base_url, **fields)
 
 
 @router.post("/heartbeat", dependencies=[Depends(require_internal_key)])
 async def heartbeat(request: Request):
-    try:
-        payload = await request.json()
-    except Exception:
-        raise HTTPException(status_code=422, detail="invalid body")
-    if not isinstance(payload, dict):
-        raise HTTPException(status_code=422, detail="invalid body")
+    payload = await _parse_json_body(request)
     node_id = _require_non_empty(payload.get("node_id"), "node_id")
-    disk_free = payload.get("disk_free")
-    files_stored = payload.get("files_stored")
-    uptime_secs = payload.get("uptime_secs")
-    version = payload.get("version")
+    fields = _enriched_fields(payload)
     _from = request.client.host if request.client else "?"
     prev_seen = ""
     for _row in list_nodes():
         if _row.get("node_id") == node_id:
             prev_seen = _row.get("last_seen", "")
             break
-    row = heartbeat_node(node_id, disk_free=disk_free,
-                         files_stored=files_stored, uptime_secs=uptime_secs,
-                         version=version)
+    row = heartbeat_node(node_id, **fields)
     if row is None:
-        print(f"[nodes] heartbeat node={node_id} from={_from} -> 404 "
-              f"(unknown node, register first)", flush=True)
+        _log.info("[nodes] heartbeat node=%s from=%s -> 404 "
+                  "(unknown node, register first)", node_id, _from)
         raise HTTPException(status_code=404,
                             detail="unknown node, register first")
-    print(f"[nodes] heartbeat node={node_id} from={_from} -> 200", flush=True)
+    _log.info("[nodes] heartbeat node=%s from=%s -> 200", node_id, _from)
     now = datetime.now(timezone.utc)
     if (prev_seen and not is_live(prev_seen, now)
             and is_live(row.get("last_seen", ""), now)):
@@ -100,8 +104,7 @@ async def heartbeat(request: Request):
 async def list_membership():
     rows = list_nodes()
     now = datetime.now(timezone.utc)
-    live = [r for r in rows if is_live(r.get("last_seen", ""), now)]
-    dead = [r for r in rows if not is_live(r.get("last_seen", ""), now)]
+    live, dead = _live_dead_rows(rows, now)
     return {"live": live, "dead": dead}
 
 
@@ -118,8 +121,7 @@ async def read_events(limit: int = 50):
 async def network_map():
     rows = list_nodes()
     now = datetime.now(timezone.utc)
-    live = [r for r in rows if is_live(r.get("last_seen", ""), now)]
-    dead = [r for r in rows if not is_live(r.get("last_seen", ""), now)]
+    live, dead = _live_dead_rows(rows, now)
     objects = list_objects()
     files = [{"name": m["name"], "replicas": list(m.get("replicas", []))}
              for m in objects]
@@ -152,7 +154,7 @@ def check_and_repair():
         dead_ids = [d.get("node_id") for d in get_dead_nodes()
                     if d.get("node_id")]
     live_set = set(live_nodes)
-    internal_key = _internal_key()
+    internal_key = get_internal_key()
     objects = list_objects()
     # Transition-only death reporting: log node_down once per fresh death.
     for _row in rows:

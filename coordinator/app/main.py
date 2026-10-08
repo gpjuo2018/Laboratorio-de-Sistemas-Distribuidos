@@ -1,11 +1,11 @@
-"""Coordinator FastAPI app (skeleton)."""
+"""Coordinator FastAPI app."""
 import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from coordinator.app.routers import client, nodes
 
-app = FastAPI(title="RAID1 Coordinator (skeleton)")
+app = FastAPI(title="RAID1 Coordinator")
 app.include_router(client.router)
 app.include_router(nodes.router)
 

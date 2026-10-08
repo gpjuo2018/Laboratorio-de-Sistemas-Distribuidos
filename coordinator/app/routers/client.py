@@ -23,10 +23,6 @@ def _guard(name: str) -> None:
         raise HTTPException(status_code=400, detail="invalid name")
 
 
-def _internal_key() -> str:
-    return get_internal_key()
-
-
 @router.put("/{name}", dependencies=[Depends(require_api_key)])
 async def upload_file(name: str, request: Request):
     _guard(name)
@@ -36,7 +32,7 @@ async def upload_file(name: str, request: Request):
     if len(nodes) < 1:
         raise HTTPException(status_code=503, detail="no nodes available")
     targets = rendezvous_pick(name, nodes)[:RF]
-    res = replicate(name, body, digest, targets, _internal_key())
+    res = replicate(name, body, digest, targets, get_internal_key())
     if res and all(r["ok"] for r in res):
         upsert_object(name, digest, len(body), targets)
         return {"name": name, "sha256": digest, "size": len(body),
@@ -52,7 +48,7 @@ def download_file(name: str):
     if meta is None:
         raise HTTPException(status_code=404, detail="not found")
     body = fetch_verified(name, meta["sha256"], meta["replicas"],
-                          _internal_key())
+                          get_internal_key())
     if body is None:
         raise HTTPException(status_code=502,
                             detail="all replicas corrupt or unavailable")
@@ -75,7 +71,7 @@ def delete_file(name: str):
     if meta is None:
         raise HTTPException(status_code=404, detail="not found")
     results = []
-    internal_headers = {"X-Internal-Key": _internal_key()}
+    internal_headers = {"X-Internal-Key": get_internal_key()}
     for t in meta["replicas"]:
         entry = {"target": t, "ok": False, "status": None, "error": None}
         try:
