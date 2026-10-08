@@ -77,6 +77,9 @@ else SRC_DATA=".env DATA_DIR"; fi
 export NODE_ID NODE_PORT COORDINATOR_URL DATA_DIR
 LOCAL_BASE="http://127.0.0.1:$NODE_PORT"
 LOG_PATH="logs/node-$NODE_ID-$NODE_PORT.log"
+# Internal auth header for /internal/health, /nodes/register, /nodes/heartbeat.
+AUTH_HDR=()
+if [ -n "${X_INTERNAL_KEY:-}" ]; then AUTH_HDR=(-H "X-Internal-Key: $X_INTERNAL_KEY"); fi
 
 if [ ! -x .venv/bin/python ]; then
   echo "PREFLIGHT FAIL: .venv not found. Fix: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; exit 1
@@ -121,7 +124,7 @@ trap 'kill $NODE_PID 2>/dev/null; echo "stopped node $NODE_ID (PID $NODE_PID)."'
 if [ -n "${TS_IP:-}" ]; then BASE_URL="http://$TS_IP:$NODE_PORT"; else BASE_URL="http://127.0.0.1:$NODE_PORT"; fi
 
 register_once() {
-  HEALTH="$(curl -fs --max-time 3 "$LOCAL_BASE/internal/health" 2>/dev/null || true)"
+  HEALTH="$(curl -fs --max-time 3 "${AUTH_HDR[@]}" "$LOCAL_BASE/internal/health" 2>/dev/null || true)"
   BODY="$(NODE_ID="$NODE_ID" BASE_URL="$BASE_URL" HEALTH="$HEALTH" .venv/bin/python -c '
 import json, os
 h = {}
@@ -133,7 +136,7 @@ for k in ("disk_free", "files_stored", "uptime_secs", "version"):
     if k in h: payload[k] = h[k]
 print(json.dumps(payload))
 ' 2>/dev/null)"
-  CODE="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST "$COORDINATOR_URL/nodes/register" -H "Content-Type: application/json" -d "$BODY" 2>/dev/null || echo 000)"
+  CODE="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST "$COORDINATOR_URL/nodes/register" "${AUTH_HDR[@]}" -H "Content-Type: application/json" -d "$BODY" 2>/dev/null || echo 000)"
   if [ "$CODE" = "200" ]; then
     echo "$(date '+%Y-%m-%d %H:%M:%S') registered node=$NODE_ID base=$BASE_URL coord=$COORDINATOR_URL"
     return 0
@@ -147,7 +150,7 @@ READY=""
 for _ in $(seq 1 20); do
   sleep 1
   if ! kill -0 "$NODE_PID" 2>/dev/null; then break; fi
-  if curl -fs "$LOCAL_BASE/internal/health" >/dev/null 2>&1; then READY=1; break; fi
+  if curl -fs "${AUTH_HDR[@]}" "$LOCAL_BASE/internal/health" >/dev/null 2>&1; then READY=1; break; fi
 done
 if [ -z "${READY:-}" ]; then echo "NODE FAIL: never became ready. Tail of $LOG_PATH:"; tail -20 "$LOG_PATH"; exit 1; fi
 
@@ -156,7 +159,7 @@ register_once || true
 echo "node up, heartbeating: node=$NODE_ID local=$LOCAL_BASE base=$BASE_URL coord=$COORDINATOR_URL every=${INTERVAL_SECS}s (Ctrl+C stops node + loop)"
 while true; do
   STAMP="$(date '+%Y-%m-%d %H:%M:%S')"
-  if ! HEALTH="$(curl -fs --max-time 5 "$LOCAL_BASE/internal/health" 2>/dev/null)"; then
+  if ! HEALTH="$(curl -fs --max-time 5 "${AUTH_HDR[@]}" "$LOCAL_BASE/internal/health" 2>/dev/null)"; then
     echo "$STAMP beat transient-error node=$NODE_ID local health unreachable"
     sleep "$INTERVAL_SECS"; continue
   fi
@@ -165,7 +168,7 @@ import json, os, sys
 h = json.loads(os.environ.get("HEALTH") or "{}")
 print(json.dumps({"node_id": os.environ["NODE_ID"], **{k: h.get(k) for k in ("disk_free", "files_stored", "uptime_secs", "version")}}))
 ' 2>/dev/null)"
-  CODE="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST "$COORDINATOR_URL/nodes/heartbeat" -H "Content-Type: application/json" -d "$BODY" 2>/dev/null || echo 000)"
+  CODE="$(curl -s --max-time 5 -o /dev/null -w '%{http_code}' -X POST "$COORDINATOR_URL/nodes/heartbeat" "${AUTH_HDR[@]}" -H "Content-Type: application/json" -d "$BODY" 2>/dev/null || echo 000)"
   if [ "$CODE" = "200" ]; then
     echo "$STAMP beat ok node=$NODE_ID"
   elif [ "$CODE" = "404" ]; then

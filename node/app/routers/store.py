@@ -1,14 +1,15 @@
-"""Node block-store with SHA-256 integrity verification."""
+"""Node block-store with SHA-256 integrity verification (requires X-Internal-Key)."""
 import os
 import shutil
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from common.config import APP_VERSION
 from common.hashing import sha256_bytes, sha256_stream
+from common.security import require_internal_key
 
 router = APIRouter(tags=["store"])
 NOT_IMPL = {"detail": "not implemented (skeleton)"}
@@ -25,7 +26,7 @@ def _data_dir() -> Path:
     return Path(os.getenv("DATA_DIR", "./data"))
 
 
-@router.put("/store/{name}")
+@router.put("/store/{name}", dependencies=[Depends(require_internal_key)])
 async def store_put(name: str, request: Request,
                     x_expected_sha256: str | None = Header(default=None)):
     _guard(name)
@@ -39,7 +40,7 @@ async def store_put(name: str, request: Request,
     return {"name": name, "sha256": digest, "size": len(body)}
 
 
-@router.get("/store/{name}")
+@router.get("/store/{name}", dependencies=[Depends(require_internal_key)])
 def store_get(name: str):
     _guard(name)
     path = _data_dir() / name
@@ -49,7 +50,7 @@ def store_get(name: str):
     return FileResponse(str(path), headers={"X-SHA256": digest})
 
 
-@router.delete("/store/{name}")
+@router.delete("/store/{name}", dependencies=[Depends(require_internal_key)])
 def store_delete(name: str):
     _guard(name)
     path = _data_dir() / name
@@ -59,7 +60,7 @@ def store_delete(name: str):
     return {"name": name, "deleted": True}
 
 
-@router.get("/internal/health")
+@router.get("/internal/health", dependencies=[Depends(require_internal_key)])
 def internal_health():
     data_dir = _data_dir()
     if data_dir.is_dir():

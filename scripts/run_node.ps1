@@ -185,6 +185,11 @@ $env:NODE_ID = $NodeId
 $env:NODE_PORT = "$Port"
 $env:COORDINATOR_URL = $CoordinatorUrl
 $env:DATA_DIR = $DataDir
+# Internal auth: X-Internal-Key for /internal/health, /nodes/register, /nodes/heartbeat.
+$InternalKey = $envFile['X_INTERNAL_KEY']
+if (-not $InternalKey) { $InternalKey = $env:X_INTERNAL_KEY }
+$InternalHeaders = @{}
+if ($InternalKey) { $InternalHeaders['X-Internal-Key'] = $InternalKey }
 
 # Node base_url advertised to the coordinator (it must reach us: tailnet IP).
 $BaseUrl = if ($tsIp) { "http://$(($tsIp.ToString().Trim())):$Port" } else { "http://127.0.0.1:$Port" }
@@ -192,11 +197,11 @@ $BaseUrl = if ($tsIp) { "http://$(($tsIp.ToString().Trim())):$Port" } else { "ht
 function Register-NodeOnce {
   $body = @{ node_id = $NodeId; base_url = $BaseUrl }
   try {
-    $h = Invoke-RestMethod -Uri "$LocalBase/internal/health" -TimeoutSec 3
+    $h = Invoke-RestMethod -Uri "$LocalBase/internal/health" -Headers $InternalHeaders -TimeoutSec 3
     $body += @{ disk_free = $h.disk_free; files_stored = $h.files_stored; uptime_secs = $h.uptime_secs; version = $h.version }
   } catch { }
   try {
-    Invoke-RestMethod -Method Post -Uri "$CoordinatorUrl/nodes/register" -Body ($body | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 | Out-Null
+    Invoke-RestMethod -Method Post -Uri "$CoordinatorUrl/nodes/register" -Headers $InternalHeaders -Body ($body | ConvertTo-Json) -ContentType "application/json" -TimeoutSec 5 | Out-Null
     Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') registered node=$NodeId base=$BaseUrl coord=$CoordinatorUrl"
     return $true
   } catch {
@@ -218,7 +223,7 @@ for ($i = 0; $i -lt 20; $i++) {
   Start-Sleep -Seconds 1
   if ($nodeProc.HasExited) { break }
   try {
-    $probe = Invoke-RestMethod -Uri "$LocalBase/internal/health" -TimeoutSec 2
+    $probe = Invoke-RestMethod -Uri "$LocalBase/internal/health" -Headers $InternalHeaders -TimeoutSec 2
     if ($probe.status -eq "ok") { $ready = $true; break }
   } catch {
   }
@@ -238,7 +243,7 @@ try {
   while ($true) {
     $stamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     try {
-      $health = Invoke-RestMethod -Uri "$LocalBase/internal/health" -TimeoutSec 5
+      $health = Invoke-RestMethod -Uri "$LocalBase/internal/health" -Headers $InternalHeaders -TimeoutSec 5
     } catch {
       Write-Host "$stamp beat transient-error node=$NodeId local health unreachable: $($_.Exception.Message)"
       Start-Sleep -Seconds $IntervalSecs
@@ -252,7 +257,7 @@ try {
       version      = $health.version
     } | ConvertTo-Json
     try {
-      Invoke-RestMethod -Method Post -Uri "$CoordinatorUrl/nodes/heartbeat" -Body $body -ContentType "application/json" -TimeoutSec 5 | Out-Null
+      Invoke-RestMethod -Method Post -Uri "$CoordinatorUrl/nodes/heartbeat" -Headers $InternalHeaders -Body $body -ContentType "application/json" -TimeoutSec 5 | Out-Null
       Write-Host "$stamp beat ok node=$NodeId files=$($health.files_stored) up=$([math]::Round($health.uptime_secs, 1))s ver=$($health.version)"
     } catch {
       $msg = $_.Exception.Message

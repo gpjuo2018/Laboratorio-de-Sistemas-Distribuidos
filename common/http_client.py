@@ -9,11 +9,11 @@ def forward_put(url: str, data: bytes, headers: dict | None = None):
     return httpx.put(url, content=data, headers=headers, timeout=REQUEST_TIMEOUT)
 
 
-def forward_get(url: str):
+def forward_get(url: str, headers: dict | None = None):
     """GET bytes from a storage node. Returns the httpx.Response."""
-    return httpx.get(url, timeout=REQUEST_TIMEOUT)
+    return httpx.get(url, headers=headers, timeout=REQUEST_TIMEOUT)
 
 
-def forward_delete(url: str):
+def forward_delete(url: str, headers: dict | None = None):
     """DELETE an object on a storage node. Returns the httpx.Response."""
-    return httpx.delete(url, timeout=REQUEST_TIMEOUT)
+    return httpx.delete(url, headers=headers, timeout=REQUEST_TIMEOUT)

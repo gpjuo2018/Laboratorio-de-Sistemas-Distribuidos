@@ -1,6 +1,15 @@
 """Fan-out replication: write-2 / read-1 with digest verification."""
+import os
+
 from common import http_client
 from common.hashing import sha256_bytes
+
+
+def _internal_headers(extra: dict | None = None) -> dict:
+    headers = {"X-Internal-Key": os.getenv("X_INTERNAL_KEY", "")}
+    if extra:
+        headers.update(extra)
+    return headers
 
 
 def replicate(name: str, data: bytes, digest: str, targets: list,
@@ -37,11 +46,14 @@ def replicate(name: str, data: bytes, digest: str, targets: list,
     return results
 
 
-def fetch_verified(name: str, digest: str, targets: list) -> bytes | None:
+def fetch_verified(name: str, digest: str, targets: list,
+                   internal_key: str | None = None) -> bytes | None:
     """GET each replica in order; return first body matching digest, else None."""
+    key = internal_key if internal_key is not None else os.getenv("X_INTERNAL_KEY", "")
+    headers = _internal_headers() if internal_key is None else {"X-Internal-Key": key}
     for t in targets:
         try:
-            resp = http_client.forward_get(f"{t}/store/{name}")
+            resp = http_client.forward_get(f"{t}/store/{name}", headers=headers)
         except Exception:
             continue
         if resp.status_code != 200:

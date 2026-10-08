@@ -1,15 +1,15 @@
-"""Coordinator node-facing surface (tailnet-only internal, no auth).
+"""Coordinator node-facing surface (internal, requires X-Internal-Key).
 
 Endpoints: register + heartbeat + live/dead listing + manual repair check.
 There is NO background loop; repair runs only on POST /nodes/check.
 """
-import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from common.config import APP_VERSION
 from common.hashing import rendezvous_rank
+from common.security import get_internal_key, require_internal_key
 from coordinator.app.persistence.models import (
     heartbeat_node,
     last_event,
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/nodes", tags=["nodes"])
 
 
 def _internal_key() -> str:
-    return os.getenv("X_INTERNAL_KEY", "change-me-internal")
+    return get_internal_key()
 
 
 def _require_non_empty(value, field: str) -> str:
@@ -37,7 +37,7 @@ def _require_non_empty(value, field: str) -> str:
     return value.strip()
 
 
-@router.post("/register")
+@router.post("/register", dependencies=[Depends(require_internal_key)])
 async def register(request: Request):
     try:
         payload = await request.json()
@@ -59,7 +59,7 @@ async def register(request: Request):
                          version=version)
 
 
-@router.post("/heartbeat")
+@router.post("/heartbeat", dependencies=[Depends(require_internal_key)])
 async def heartbeat(request: Request):
     try:
         payload = await request.json()
@@ -95,8 +95,8 @@ async def heartbeat(request: Request):
     return row
 
 
-@router.get("")
-@router.get("/")
+@router.get("", dependencies=[Depends(require_internal_key)])
+@router.get("/", dependencies=[Depends(require_internal_key)])
 async def list_membership():
     rows = list_nodes()
     now = datetime.now(timezone.utc)
@@ -105,7 +105,7 @@ async def list_membership():
     return {"live": live, "dead": dead}
 
 
-@router.get("/events")
+@router.get("/events", dependencies=[Depends(require_internal_key)])
 async def read_events(limit: int = 50):
     try:
         lim = max(1, min(int(limit), 200))
@@ -114,7 +114,7 @@ async def read_events(limit: int = 50):
     return list_events(limit=lim)
 
 
-@router.get("/map")
+@router.get("/map", dependencies=[Depends(require_internal_key)])
 async def network_map():
     rows = list_nodes()
     now = datetime.now(timezone.utc)
@@ -137,7 +137,7 @@ async def network_map():
     }
 
 
-@router.post("/check")
+@router.post("/check", dependencies=[Depends(require_internal_key)])
 def check_and_repair():
     # Liveness via the single shared helper (no inline datetime arithmetic).
     rows = list_nodes()
@@ -174,7 +174,7 @@ def check_and_repair():
         missing = RF - len(live)
         if missing <= 0:
             continue
-        body = fetch_verified(name, digest, live)
+        body = fetch_verified(name, digest, live, internal_key)
         if body is None:
             failed.append(name)
             continue

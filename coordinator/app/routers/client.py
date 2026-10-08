@@ -1,12 +1,10 @@
 """Coordinator client-facing routes: write-2 / read-1 fan-out over nodes."""
-import os
-
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
 from common import http_client
 from common.hashing import sha256_bytes
-from common.security import API_KEY_HEADER
+from common.security import get_internal_key, require_api_key
 from coordinator.app.persistence.models import (
     delete_object,
     get_object,
@@ -20,19 +18,13 @@ from coordinator.app.services.replication import fetch_verified, replicate
 router = APIRouter(prefix="/files", tags=["client"])
 
 
-def require_api_key(x_api_key: str | None = Header(default=None)):
-    if not x_api_key:
-        raise HTTPException(status_code=401, detail="missing api key")
-    return x_api_key
-
-
 def _guard(name: str) -> None:
     if "/" in name or "\\" in name or ".." in name:
         raise HTTPException(status_code=400, detail="invalid name")
 
 
 def _internal_key() -> str:
-    return os.getenv("X_INTERNAL_KEY", "change-me-internal")
+    return get_internal_key()
 
 
 @router.put("/{name}", dependencies=[Depends(require_api_key)])
@@ -59,7 +51,8 @@ def download_file(name: str):
     meta = get_object(name)
     if meta is None:
         raise HTTPException(status_code=404, detail="not found")
-    body = fetch_verified(name, meta["sha256"], meta["replicas"])
+    body = fetch_verified(name, meta["sha256"], meta["replicas"],
+                          _internal_key())
     if body is None:
         raise HTTPException(status_code=502,
                             detail="all replicas corrupt or unavailable")
@@ -82,10 +75,12 @@ def delete_file(name: str):
     if meta is None:
         raise HTTPException(status_code=404, detail="not found")
     results = []
+    internal_headers = {"X-Internal-Key": _internal_key()}
     for t in meta["replicas"]:
         entry = {"target": t, "ok": False, "status": None, "error": None}
         try:
-            resp = http_client.forward_delete(f"{t}/store/{name}")
+            resp = http_client.forward_delete(f"{t}/store/{name}",
+                                              headers=internal_headers)
             entry["status"] = resp.status_code
             if resp.status_code in (200, 204, 404):
                 entry["ok"] = True

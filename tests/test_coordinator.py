@@ -25,6 +25,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv(
         "NODES", ",".join(FAKE_NODES))
     monkeypatch.setenv("X_INTERNAL_KEY", "test-internal")
+    monkeypatch.setenv("X_API_KEY", "test-key")
     import common.http_client as http_mod
     importlib.reload(http_mod)
     import coordinator.app.services.nodes as nodes_mod
@@ -53,12 +54,12 @@ def _ok_put(monkeypatch, store: dict):
         store[url] = data
         return FakeResponse(200, json_data={"sha256": _digest(data)})
 
-    def fake_get(url):
+    def fake_get(url, headers=None):
         if url in store:
             return FakeResponse(200, content=store[url])
         return FakeResponse(404, content=b"")
 
-    def fake_delete(url):
+    def fake_delete(url, headers=None):
         if url in store:
             del store[url]
             return FakeResponse(200, json_data={"deleted": True})
@@ -147,7 +148,7 @@ def test_get_corrupt_primary_falls_back_to_secondary(client, monkeypatch):
     good = {f"{targets[1]}/store/d.txt": body}
     blob = {**corrupt, **good}
 
-    def fake_get(url):
+    def fake_get(url, headers=None):
         if url in blob:
             return FakeResponse(200, content=blob[url])
         return FakeResponse(404, content=b"")
@@ -167,7 +168,7 @@ def test_get_all_corrupt_502(client, monkeypatch):
     def fake_put(url, data, headers=None):
         return FakeResponse(200, json_data={"sha256": _digest(data)})
 
-    def fake_get(url):
+    def fake_get(url, headers=None):
         return FakeResponse(200, content=b"garbage-everywhere")
 
     monkeypatch.setattr(http_mod, "forward_put", fake_put)

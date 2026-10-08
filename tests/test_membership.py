@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 FAKE_NODES = ["http://n1", "http://n2", "http://n3", "http://n4"]
 API_HEADERS = {"X-API-Key": "test-key"}
+INTERNAL_HEADERS = {"X-Internal-Key": "test-internal"}
 NODE_URLS = {
     "node-1": "http://n1",
     "node-2": "http://n2",
@@ -31,6 +32,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("METADATA_DB_PATH", str(tmp_path / "metadata.db"))
     monkeypatch.setenv("NODES", ",".join(FAKE_NODES))
     monkeypatch.setenv("X_INTERNAL_KEY", "test-internal")
+    monkeypatch.setenv("X_API_KEY", "test-key")
     import common.http_client as http_mod
     importlib.reload(http_mod)
     import coordinator.app.services.nodes as nodes_mod
@@ -66,12 +68,12 @@ def _ok_fakes(monkeypatch, store: dict):
         store[url] = data
         return FakeResponse(200, json_data={"sha256": _digest(data)})
 
-    def fake_get(url):
+    def fake_get(url, headers=None):
         if url in store:
             return FakeResponse(200, content=store[url])
         return FakeResponse(404, content=b"")
 
-    def fake_delete(url):
+    def fake_delete(url, headers=None):
         if url in store:
             del store[url]
             return FakeResponse(200, json_data={"deleted": True})
@@ -86,7 +88,8 @@ def _ok_fakes(monkeypatch, store: dict):
 def _register_all(client):
     for node_id, base_url in NODE_URLS.items():
         r = client.post("/nodes/register",
-                        json={"node_id": node_id, "base_url": base_url})
+                        json={"node_id": node_id, "base_url": base_url},
+                        headers=INTERNAL_HEADERS)
         assert r.status_code == 200
 
 
@@ -99,7 +102,8 @@ def _url_to_node_id(base_url: str) -> str:
 
 def test_register_200_and_row_echo(client):
     r = client.post("/nodes/register",
-                    json={"node_id": "node-1", "base_url": "http://n1"})
+                    json={"node_id": "node-1", "base_url": "http://n1"},
+                    headers=INTERNAL_HEADERS)
     assert r.status_code == 200
     row = r.json()
     assert row["node_id"] == "node-1"
@@ -111,24 +115,30 @@ def test_register_200_and_row_echo(client):
 
 def test_register_validation_422(client):
     assert client.post("/nodes/register",
-                       json={"base_url": "http://n1"}).status_code == 422
+                       json={"base_url": "http://n1"},
+                       headers=INTERNAL_HEADERS).status_code == 422
     assert client.post("/nodes/register",
-                       json={"node_id": "", "base_url": "http://n1"}).status_code == 422
+                       json={"node_id": "", "base_url": "http://n1"},
+                       headers=INTERNAL_HEADERS).status_code == 422
     assert client.post("/nodes/register",
-                       json={"node_id": "node-1"}).status_code == 422
+                       json={"node_id": "node-1"},
+                       headers=INTERNAL_HEADERS).status_code == 422
     assert client.post("/nodes/register",
-                       json={"node_id": "node-1", "base_url": "  "}).status_code == 422
+                       json={"node_id": "node-1", "base_url": "  "},
+                       headers=INTERNAL_HEADERS).status_code == 422
     assert client.post("/nodes/heartbeat",
-                       json={}).status_code == 422
+                       json={}, headers=INTERNAL_HEADERS).status_code == 422
 
 
 def test_heartbeat_updates_last_seen(client):
     client.post("/nodes/register",
-                json={"node_id": "node-1", "base_url": "http://n1"})
+                json={"node_id": "node-1", "base_url": "http://n1"},
+                headers=INTERNAL_HEADERS)
     client.models.set_last_seen("node-1", _old_iso())
     before = [n for n in client.models.list_nodes()
               if n["node_id"] == "node-1"][0]["last_seen"]
-    r = client.post("/nodes/heartbeat", json={"node_id": "node-1"})
+    r = client.post("/nodes/heartbeat", json={"node_id": "node-1"},
+                    headers=INTERNAL_HEADERS)
     assert r.status_code == 200
     after = r.json()["last_seen"]
     assert after != before
@@ -137,7 +147,8 @@ def test_heartbeat_updates_last_seen(client):
 
 
 def test_unknown_heartbeat_404(client):
-    r = client.post("/nodes/heartbeat", json={"node_id": "ghost"})
+    r = client.post("/nodes/heartbeat", json={"node_id": "ghost"},
+                    headers=INTERNAL_HEADERS)
     assert r.status_code == 404
     assert "register" in r.json()["detail"].lower()
 
@@ -145,7 +156,7 @@ def test_unknown_heartbeat_404(client):
 def test_get_nodes_live_dead_split_with_aged_node(client):
     _register_all(client)
     client.models.set_last_seen("node-4", _old_iso())
-    r = client.get("/nodes")
+    r = client.get("/nodes", headers=INTERNAL_HEADERS)
     assert r.status_code == 200
     data = r.json()
     assert set(data) == {"live", "dead"}
@@ -187,7 +198,7 @@ def test_full_repair_restores_rf2_with_identical_content(client, monkeypatch):
     _register_all(client)
     # Kill one node -> GET shows 1 dead.
     client.models.set_last_seen("node-4", _old_iso())
-    assert len(client.get("/nodes").json()["dead"]) == 1
+    assert len(client.get("/nodes", headers=INTERNAL_HEADERS).json()["dead"]) == 1
     # PUT lands RF=2 on live nodes only.
     body = b"repair-me-bytes"
     r = client.put("/files/r.txt", content=body, headers=API_HEADERS)
@@ -198,7 +209,7 @@ def test_full_repair_restores_rf2_with_identical_content(client, monkeypatch):
     victim_url = r.json()["replicas"][0]
     client.models.set_last_seen(_url_to_node_id(victim_url), _old_iso())
     # Manual repair trigger restores RF=2 with byte-identical content.
-    chk = client.post("/nodes/check")
+    chk = client.post("/nodes/check", headers=INTERNAL_HEADERS)
     assert chk.status_code == 200
     data = chk.json()
     assert "r.txt" in data["repaired"]
@@ -222,7 +233,7 @@ def test_unrecoverable_all_holders_dead(client, monkeypatch):
     meta_before = client.models.get_object("d.txt")
     for replica_url in meta_before["replicas"]:
         client.models.set_last_seen(_url_to_node_id(replica_url), _old_iso())
-    chk = client.post("/nodes/check")
+    chk = client.post("/nodes/check", headers=INTERNAL_HEADERS)
     assert chk.status_code == 200
     assert "d.txt" in chk.json()["failed"]
     assert "d.txt" not in chk.json()["repaired"]
