@@ -51,7 +51,7 @@ METADATA_DB_PATH=./metadata.db
 - Windows: `.\scripts\run_node.ps1` (o `.\scripts\run_coordinator.ps1` si eres coordinador)
 - Mac/Linux: `./scripts/run_node.sh` (la primera vez: `chmod +x scripts/run_node.sh`)
 
-**Si sale `PREFLIGHT FAIL: port busy`:** no cambies el puerto, mata el proceso viejo que lo ocupa. Si sale `register pending`, el coordinador no está arriba todavía: levanta primero el coordinador.
+**Si sale `PREFLIGHT FAIL: port busy`:** el script ya limpia solo los nodos viejos olvidados. Si el error persiste es otro programa: no cambies el puerto, mata ese proceso (Windows: `netstat -ano | findstr :TUPUERTO` y `taskkill /F /PID <número>`; Mac: `lsof -iTCP:TUPUERTO -sTCP:LISTEN` y `kill <número>`). Para apagar bien usa siempre **Ctrl+C**, no cierres la ventana. Si sale `register pending`, el coordinador no está arriba todavía: levanta primero el coordinador.
 
 ## Carpetas
 - `coordinator/` - metadatos (SQLite), ubicación RF=2, réplicas hacia los nodos

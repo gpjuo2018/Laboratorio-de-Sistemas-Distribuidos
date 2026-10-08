@@ -81,8 +81,23 @@ LOG_PATH="logs/node-$NODE_ID-$NODE_PORT.log"
 if [ ! -x .venv/bin/python ]; then
   echo "PREFLIGHT FAIL: .venv not found. Fix: python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"; exit 1
 fi
-if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$NODE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "PREFLIGHT FAIL: port $NODE_PORT busy"; exit 1
+if command -v lsof >/dev/null 2>&1; then
+  # Auto-limpieza: si el puerto lo retiene un nodo anterior (huerfano por
+  # cerrar la terminal en vez de Ctrl+C), matarlo y seguir. Otro programa -> FAIL.
+  STALE_PID="$(lsof -t -iTCP:"$NODE_PORT" -sTCP:LISTEN 2>/dev/null | head -1 || true)"
+  if [ -n "${STALE_PID:-}" ]; then
+    STALE_CMD="$(ps -p "$STALE_PID" -o command= 2>/dev/null || true)"
+    case "$STALE_CMD" in
+      *uvicorn*|*node.app.main*)
+        echo "STALE NODE: port $NODE_PORT ocupado por un nodo anterior (PID $STALE_PID). Limpiando..."
+        kill -9 "$STALE_PID" 2>/dev/null || true
+        sleep 2
+        ;;
+    esac
+  fi
+  if lsof -iTCP:"$NODE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "PREFLIGHT FAIL: port $NODE_PORT busy (no es un nodo). Fix: lsof -iTCP:$NODE_PORT -sTCP:LISTEN, luego kill <PID>"; exit 1
+  fi
 fi
 
 TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
@@ -96,9 +111,12 @@ echo " Log: $LOG_PATH"
 echo "==============================================="
 
 mkdir -p logs "$DATA_DIR"
+# SIN --reload a proposito: un solo proceso python = Ctrl+C o cierre de terminal
+# siempre libera el puerto (con --reload el hijo watcher quedaba huerfano).
 .venv/bin/python -m uvicorn node.app.main:app --host 0.0.0.0 --port "$NODE_PORT" >>"$LOG_PATH" 2>&1 &
 NODE_PID=$!
-trap 'kill $NODE_PID 2>/dev/null; echo "stopped node $NODE_ID (PID $NODE_PID)."' EXIT
+# EXIT cubre salida normal; HUP/INT/TERM cubren cierre de terminal y Ctrl+C.
+trap 'kill $NODE_PID 2>/dev/null; echo "stopped node $NODE_ID (PID $NODE_PID)."' EXIT HUP INT TERM
 
 if [ -n "${TS_IP:-}" ]; then BASE_URL="http://$TS_IP:$NODE_PORT"; else BASE_URL="http://127.0.0.1:$NODE_PORT"; fi
 

@@ -156,8 +156,21 @@ if (-not (Test-Path .\.env)) {
 }
 $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
 if ($busy) {
-  Write-Host "PREFLIGHT FAIL: port $Port busy (owning PID $($busy.OwningProcess)). Fix: stop that process (Stop-Process -Id $($busy.OwningProcess)) or free the port, then retry." -ForegroundColor Red
-  exit 1
+  # Auto-limpieza: si el puerto lo retiene un nodo anterior (huerfano por
+  # cerrar la ventana en vez de Ctrl+C), matarlo y seguir. Otro programa -> FAIL.
+  $stalePid = $busy.OwningProcess
+  $staleCmd = ""
+  try { $staleCmd = (Get-CimInstance Win32_Process -Filter "ProcessId=$stalePid" -ErrorAction Stop).CommandLine } catch { $staleCmd = "" }
+  if ($staleCmd -match 'uvicorn|node\.app\.main') {
+    Write-Host "STALE NODE: port $Port ocupado por un nodo anterior (PID $stalePid). Limpiando..." -ForegroundColor Yellow
+    Stop-Process -Id $stalePid -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 2
+    $busy = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+  }
+  if ($busy) {
+    Write-Host "PREFLIGHT FAIL: port $Port busy (PID $($busy.OwningProcess), no es un nodo). Fix: Stop-Process -Id $($busy.OwningProcess), luego retry." -ForegroundColor Red
+    exit 1
+  }
 }
 
 if (-not (Test-Path logs)) { New-Item -ItemType Directory -Path logs | Out-Null }
@@ -193,8 +206,12 @@ function Register-NodeOnce {
 }
 
 $python = Join-Path (Get-Location) ".venv\Scripts\python.exe"
-# NOTA: stdout y stderr NO pueden ir al mismo archivo (Start-Process lo prohibe).
-$nodeProc = Start-Process -FilePath $python -ArgumentList @("-m", "uvicorn", "node.app.main:app", "--host", "0.0.0.0", "--port", "$Port", "--reload") -RedirectStandardOutput $LogPath -RedirectStandardError $ErrLogPath -PassThru
+# SIN --reload a proposito: un solo proceso python = Ctrl+C o cierre de ventana
+# siempre libera el puerto (con --reload el hijo watcher quedaba huerfano).
+$nodeProc = Start-Process -FilePath $python -ArgumentList @("-m", "uvicorn", "node.app.main:app", "--host", "0.0.0.0", "--port", "$Port") -RedirectStandardOutput $LogPath -RedirectStandardError $ErrLogPath -PassThru
+# Si cierran la ventana en vez de Ctrl+C, matar al hijo al salir igual.
+$script:nodePid = $nodeProc.Id
+Register-EngineEvent PowerShell.Exiting -Action { if ($script:nodePid) { Stop-Process -Id $script:nodePid -Force -ErrorAction SilentlyContinue } } | Out-Null
 Write-Host "Booting node $NodeId on port $Port (PID $($nodeProc.Id)), waiting for /internal/health ..."
 $ready = $false
 for ($i = 0; $i -lt 20; $i++) {
@@ -250,6 +267,7 @@ try {
     Start-Sleep -Seconds $IntervalSecs
   }
 } finally {
+  Get-EventSubscriber | Where-Object { $_.SourceIdentifier -eq 'PowerShell.Exiting' } | Unregister-Event
   if (-not $nodeProc.HasExited) { Stop-Process -Id $nodeProc.Id -Force }
   Write-Host "stopped node $NodeId (PID $($nodeProc.Id))."
 }
