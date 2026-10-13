@@ -2,7 +2,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from coordinator.app.routers import client, nodes
@@ -28,11 +28,9 @@ if os.path.isdir(_static):
 
 @app.get("/", include_in_schema=False)
 def console():
-    """Sirve la consola web en / (además de /static/index.html)."""
-    index = os.path.join(_static, "index.html")
-    if os.path.isfile(index):
-        return FileResponse(index, media_type="text/html")
-    return {"detail": "consola no encontrada: falta frontend/static/index.html"}
+    """Redirige a /static/index.html (las rutas relativas del HTML
+    solo resuelven bien servidas desde /static/)."""
+    return RedirectResponse(url="/static/index.html", status_code=307)
 
 
 @app.get("/health")
