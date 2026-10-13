@@ -61,4 +61,8 @@ if (Test-Path .\.venv\Scripts\Activate.ps1) { . .\.venv\Scripts\Activate.ps1 }
 # uvicorn logs INFO to stderr: relax to Continue so log lines don't raise NativeCommandError.
 $ErrorActionPreference = "Continue"
 # Stringify ErrorRecords so stderr lines print/log as clean text (no CategoryInfo dumps).
-uvicorn coordinator.app.main:app --host 0.0.0.0 --port $Port --reload 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $LogPath -Append
+# Sin --reload: un solo proceso (igual que run_coordinator.sh y run_node.ps1).
+# Con --reload uvicorn reinicia el coordinador ante CUALQUIER cambio
+# (logs/, *.db, frontend/, data-node-*/), la consola parece recargarse
+# en bucle y se pierden conexiones/listados en pleno uso.
+uvicorn coordinator.app.main:app --host 0.0.0.0 --port $Port 2>&1 | ForEach-Object { "$_" } | Tee-Object -FilePath $LogPath -Append

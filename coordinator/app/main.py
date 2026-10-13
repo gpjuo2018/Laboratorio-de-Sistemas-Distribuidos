@@ -2,6 +2,7 @@
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from coordinator.app.routers import client, nodes
@@ -20,8 +21,18 @@ app.include_router(nodes.router)
 
 _static = os.path.join(os.path.dirname(__file__), "..", "..",
                        "frontend", "static")
+_static = os.path.normpath(_static)
 if os.path.isdir(_static):
     app.mount("/static", StaticFiles(directory=_static), name="static")
+
+
+@app.get("/", include_in_schema=False)
+def console():
+    """Sirve la consola web en / (además de /static/index.html)."""
+    index = os.path.join(_static, "index.html")
+    if os.path.isfile(index):
+        return FileResponse(index, media_type="text/html")
+    return {"detail": "consola no encontrada: falta frontend/static/index.html"}
 
 
 @app.get("/health")
