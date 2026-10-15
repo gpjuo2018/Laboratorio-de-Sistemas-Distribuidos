@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from common.config import APP_VERSION
 from common.hashing import rendezvous_rank
 from common.security import get_internal_key, require_internal_key
+from common import http_client
 from coordinator.app.persistence.models import (
     heartbeat_node,
     last_event,
@@ -139,6 +140,48 @@ async def network_map():
         "files": files,
         "recent_events": list_events(limit=10),
     }
+
+
+@router.get("/mesh", dependencies=[Depends(require_internal_key)])
+def network_mesh(refresh: bool = True):
+    """Malla entre nodos vía el coordinador (proxy server-side).
+
+    El navegador solo habla con el coordinador (mismo origen): esto hace
+    que la consola funcione también por Tailscale Funnel (HTTPS pública),
+    donde el navegador no alcanza los http://100.x:800y directos
+    (contenido mixto + sin cliente Tailscale)."""
+    rows = list_nodes()
+    now = datetime.now(timezone.utc)
+    live, _dead = _live_dead_rows(rows, now)
+    internal_headers = {"X-Internal-Key": get_internal_key()}
+    flag = "true" if refresh else "false"
+    mesh = []
+    for n in live:
+        entry = {"node_id": n.get("node_id"), "base_url": n.get("base_url"),
+                 "ok": False, "peers": [], "error": None}
+        try:
+            resp = http_client.forward_get(
+                f"{n.get('base_url')}/peers?refresh={flag}",
+                headers=internal_headers)
+        except Exception as exc:
+            entry["error"] = f"{type(exc).__name__}: {exc}"[:200]
+            mesh.append(entry)
+            continue
+        if resp.status_code != 200:
+            entry["error"] = f"http {resp.status_code}"
+            mesh.append(entry)
+            continue
+        try:
+            data = resp.json()
+        except Exception:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
+        entry["ok"] = True
+        peers = data.get("peers", [])
+        entry["peers"] = peers if isinstance(peers, list) else []
+        mesh.append(entry)
+    return {"mesh": mesh}
 
 
 @router.post("/check", dependencies=[Depends(require_internal_key)])

@@ -3,7 +3,6 @@
    Nunca pide ni envia X-Internal-Key (plano interno, no es para navegadores). */
 
 const $ = (id) => document.getElementById(id);
-const ipInput = $("coord-ip"), portInput = $("coord-port");
 const keyInput = $("api-key"), rememberInput = $("remember");
 const internalInput = $("internal-key");
 const connStatus = $("conn-status"), connPill = $("conn-pill"), logBox = $("log");
@@ -19,10 +18,6 @@ try {
   if (savedKey) keyInput.value = savedKey;
   const savedIk = localStorage.getItem("raid1_internal_key");
   if (savedIk) internalInput.value = savedIk;
-  const savedIp = localStorage.getItem("raid1_coord_ip");
-  if (savedIp) ipInput.value = savedIp;
-  const savedPort = localStorage.getItem("raid1_coord_port");
-  if (savedPort) portInput.value = savedPort;
 } catch { /* almacenamiento no disponible: se usa solo memoria */ }
 
 function persist() {
@@ -31,26 +26,16 @@ function persist() {
     else localStorage.removeItem("raid1_api_key");
     if (rememberInput.checked && internalInput.value) localStorage.setItem("raid1_internal_key", internalInput.value);
     else localStorage.removeItem("raid1_internal_key");
-    if (ipInput.value.trim()) localStorage.setItem("raid1_coord_ip", ipInput.value.trim());
-    else localStorage.removeItem("raid1_coord_ip");
-    if (portInput.value.trim()) localStorage.setItem("raid1_coord_port", portInput.value.trim());
-    else localStorage.removeItem("raid1_coord_port");
   } catch { /* ignorar */ }
 }
 keyInput.addEventListener("change", persist);
 internalInput.addEventListener("change", persist);
-ipInput.addEventListener("change", persist);
-portInput.addEventListener("change", persist);
 
 function base() {
-  let ip = ipInput.value.trim().replace(/^https?:\/\//i, "").replace(/\/+$/, "");
-  if (!ip) {
-    if (location.protocol === "file:") return "http://127.0.0.1:8000";
-    return location.origin;
-  }
-  if (ip.includes(":")) return `http://${ip}`;
-  const port = (portInput.value.trim() || "8000").replace(/\D/g, "") || "8000";
-  return `http://${ip}:${port}`;
+  // La consola la sirve el propio coordinador (.env -> COORDINATOR_URL):
+  // se habla siempre al mismo origen, sin pedir IP/puerto.
+  if (location.protocol === "file:") return "http://127.0.0.1:8000";
+  return location.origin;
 }
 function apiKey() { return keyInput.value; }
 function internalKey() { return internalInput.value; }
@@ -241,31 +226,38 @@ async function renderNodes() {
     if (!live.length && !dead.length)
       nodesBody.innerHTML = `<tr><td colspan="5" class="muted">sin nodos registrados</td></tr>`;
     meshBox.innerHTML = "";
-    for (const n of live) {
-      const line = document.createElement("div");
-      line.className = "muted";
-      line.textContent = `${n.node_id} sondeando hermanos…`;
-      meshBox.append(line);
-      try {
-        const pr = await nodeApi(`${n.base_url}/peers?refresh=true`);
-        const data = await pr.json();
-        line.textContent = "";
+    // La malla se pide al coordinador (mismo origen, GET /nodes/mesh):
+    // el navegador nunca contacta los http://100.x directos, así la
+    // consola funciona también por Tailscale Funnel (HTTPS pública).
+    try {
+      const mr = await nodeApi(base() + "/nodes/mesh");
+      const mdata = await mr.json();
+      const mesh = mdata.mesh || [];
+      for (const m of mesh) {
+        const line = document.createElement("div");
+        line.className = "muted";
         const title = document.createElement("strong");
-        title.textContent = `${n.node_id} ve: `;
+        title.textContent = `${m.node_id} ve: `;
         line.append(title);
-        if (!data.peers.length) line.append(document.createTextNode("solo (sin hermanos alcanzables)"));
-        for (const p of data.peers) {
-          const chip = document.createElement("span");
-          chip.className = `st ${p.reachable ? "ok" : "err"}`;
-          chip.append(dot(p.reachable ? "ok" : p.status === "degraded" ? "warn" : "err"),
-                      document.createTextNode(`${p.node_id}·${p.status || "?"} `));
-          line.append(chip);
+        if (!m.ok) {
+          line.append(document.createTextNode(`no responde (${m.error || "?"})`));
+        } else if (!m.peers.length) {
+          line.append(document.createTextNode("solo (sin hermanos alcanzables)"));
+        } else {
+          for (const p of m.peers) {
+            const chip = document.createElement("span");
+            chip.className = `st ${p.reachable ? "ok" : "err"}`;
+            chip.append(dot(p.reachable ? "ok" : p.status === "degraded" ? "warn" : "err"),
+                        document.createTextNode(`${p.node_id}·${p.status || "?"} `));
+            line.append(chip);
+          }
         }
-      } catch (e) {
-        line.textContent = `${n.node_id}: no responde (${internalErrText(e.status)})`;
+        meshBox.append(line);
       }
+      if (!mesh.length) meshBox.textContent = "sin nodos vivos que sondear";
+    } catch (e) {
+      meshBox.textContent = `malla no disponible (${internalErrText(e.status)})`;
     }
-    if (!live.length) meshBox.textContent = "sin nodos vivos que sondear";
     log(`malla: ${live.length} vivos, ${dead.length} caídos`, "ok");
   } catch (e) { log(`nodos falló: ${internalErrText(e.status)}`, "err"); }
 }

@@ -19,15 +19,7 @@
 <main>
 <section id="config" aria-label="Conexión">
   <h2>Conexión</h2>
-  <p class="hint">Vacío = este mismo servidor. Solo IP y puerto, sin <code>http://</code>.</p>
-  <div class="row">
-    <label>IP del coordinador
-      <input id="coord-ip" type="text" inputmode="decimal" placeholder="100.94.112.43">
-    </label>
-    <label class="short">Puerto
-      <input id="coord-port" type="number" min="1" max="65535" placeholder="8000">
-    </label>
-  </div>
+  <p class="hint">Esta consola habla con el mismo coordinador que la sirve (el de tu <code>.env</code>). Solo pon tus claves.</p>
   <label>X-API-Key
     <input id="api-key" type="password" autocomplete="off" placeholder="la de tu .env">
   </label>
@@ -84,6 +76,6 @@
 
 <div id="log" role="status"></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>
